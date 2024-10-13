@@ -1,35 +1,30 @@
 ---
-name: Issue Template
-about: Use this template to describe the purpose and details of an issue related to
-  this project.
+name: 🐛 Bug Report
+about: Report an issue in LAVA
 title: ''
-labels: ''
-assignees: ''
-
----
-
----
-name: 🚀 Feature Request
-about: Suggest an idea for this project
-title: ''
-labels: enhancement
+labels: bug
 assignees: ''
 ---
 
-### **Feature Summary**
-- A brief, clear description of the feature.
+### **Issue Summary**
+- Briefly describe the issue.
 
-### **Proposed Solution**
-- Describe the solution you'd like and how it should work. Include any relevant code snippets if necessary.
+### **Steps to Reproduce**
+- Provide a list of steps to reproduce the bug:
+  1. Step 1:
+  2. Step 2:
+  3. Step 3:
 
-### **Alternatives Considered**
-- Any alternative solutions or features you've considered, if applicable.
+### **Expected Behavior**
+- What should have happened instead of the bug?
 
-### **Related Components**
-- What parts of the codebase might this feature affect? (e.g., APIs, specific modules).
+### **Error Logs/Console Output**
+- Attach any relevant error logs or console output.
 
-### **Dependencies**
-- Will this feature require any external libraries, tools, or APIs?
+### **System Information**
+- OS: 
+- Python version: 
+- LAVA version: 
 
 ### **Additional Context**
-- Add any other context, screenshots, or information about the feature request here.
+- Any other relevant details or observations.
