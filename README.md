@@ -1,10 +1,6 @@
----
-
 ### **LAVA - Legal Action Video Analyzer**
 
 **LAVA (Legal Action Video Analyzer)** is an advanced AI tool designed to analyze legal scenarios from video content. It combines cutting-edge **NLP**, **video analysis**, and **machine learning** models to assist with legal case simulations, strategy generation, and in-depth action recognition.
-
----
 
 #### **Key Features:**
 - **Video Analysis:** Extracts video frames and transcribes audio content to identify key moments.
@@ -45,5 +41,3 @@ Contributions are welcome! Please feel free to open issues or submit pull reques
 
 #### **License:**
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
