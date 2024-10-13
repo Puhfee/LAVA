@@ -13,7 +13,7 @@
 
 To get started, clone the repository:
 ```bash
-git clone https://github.com/YourUsername/LAVA.git
+[git clone https://github.com/YourUsername/LAVA.git](https://github.com/Puhfee/LAVA.git)
 ```
 
 Install dependencies:
