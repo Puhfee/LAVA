@@ -1,0 +1,473 @@
+import os
+import threading
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
+import logging
+import cv2
+import numpy as np
+import speech_recognition as sr
+import pyttsx3
+import nltk
+from nltk.sentiment import SentimentIntensityAnalyzer
+from nltk.stem import WordNetLemmatizer
+from nltk.tokenize import word_tokenize
+from nltk.corpus import stopwords
+import re
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, pipeline
+import time
+
+# --- NLTK Setup ---
+
+# Ensure NLTK data is up to date and downloaded
+nltk_data_dir = os.path.join(os.environ['USERPROFILE'], 'AppData', 'Roaming', 'nltk_data')
+os.makedirs(nltk_data_dir, exist_ok=True)
+if nltk_data_dir not in nltk.data.path:
+    nltk.data.path.append(nltk_data_dir)
+nltk.download('punkt', download_dir=nltk_data_dir)
+nltk.download('stopwords', download_dir=nltk_data_dir)
+nltk.download('vader_lexicon', download_dir=nltk_data_dir)
+nltk.download('wordnet', download_dir=nltk_data_dir)
+nltk.download('omw-1.4', download_dir=nltk_data_dir)
+
+# Initialize logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Initialize text-to-speech engine with a female voice
+engine = pyttsx3.init()
+voices = engine.getProperty('voices')
+for voice in voices:
+    if "female" in voice.name.lower():
+        engine.setProperty('voice', voice.id)
+        break
+engine.setProperty('rate', 150)
+
+# Global variables
+legal_texts = ""
+video_transcript = ""
+video_actions = []
+analysis_results = ""
+emotion_analysis = ""
+action_analysis = ""
+sentiment_analysis = ""
+question_answer = ""
+detected_violations = []
+
+# Load the transformer model and tokenizer for legal analysis
+logging.info("Loading transformer model for legal analysis...")
+legal_model_name = "nlpaueb/legal-bert-base-uncased"
+legal_tokenizer = AutoTokenizer.from_pretrained(legal_model_name)
+legal_model = AutoModelForSequenceClassification.from_pretrained(legal_model_name)
+legal_nlp = pipeline("text-classification", model=legal_model, tokenizer=legal_tokenizer)
+logging.info("Transformer model for legal analysis loaded successfully.")
+
+# Load the transformer model for emotion detection
+logging.info("Loading transformer model for emotion detection...")
+emotion_model_name = "j-hartmann/emotion-english-distilroberta-base"
+emotion_classifier = pipeline('text-classification', model=emotion_model_name, return_all_scores=True)
+logging.info("Transformer model for emotion detection loaded successfully.")
+
+# Function to read legal texts from the file
+def get_legal_texts():
+    global legal_texts
+    file_path = r"path/to/file"
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            legal_texts = file.read()
+        logging.info("Legal texts loaded successfully from file.")
+    except Exception as e:
+        logging.error(f"Error reading legal texts from file: {e}")
+        messagebox.showerror("Error", f"Error reading legal texts from file: {e}")
+        raise
+
+# Function to preprocess text
+def preprocess_text(text):
+    tokens = word_tokenize(text.lower(), language='english')  # Using standard NLTK tokenizer
+    stop_words = set(stopwords.words('english'))
+    filtered_tokens = [token for token in tokens if token.isalpha() and token not in stop_words]
+    return filtered_tokens
+
+# Function to analyze the video file
+def analyze_video(video_path):
+    global video_transcript, video_actions, emotion_analysis, action_analysis, sentiment_analysis, detected_violations
+    update_progress("Extracting audio from video...", 10)
+    logging.info(f"Analyzing video: {video_path}")
+
+    # Initialize speech recognizer
+    recognizer = sr.Recognizer()
+
+    # Extract audio from video
+    logging.info("Extracting audio from video.")
+    try:
+        command = f'ffmpeg -i "{video_path}" -q:a 0 -map a temp_audio.wav -y'
+        os.system(command)
+    except Exception as e:
+        logging.error(f"Error extracting audio from video: {e}")
+        messagebox.showerror("Error", "Failed to extract audio from the video.")
+        return  # Exit the function if extraction fails
+
+    # Transcribe audio to text
+    update_progress("Transcribing audio to text...", 20)
+    logging.info("Transcribing audio to text.")
+    try:
+        with sr.AudioFile("temp_audio.wav") as source:
+            audio_data = recognizer.record(source)
+            try:
+                video_transcript = recognizer.recognize_google(audio_data)
+                logging.info("Audio transcribed successfully.")
+            except sr.UnknownValueError:
+                logging.error("Speech Recognition could not understand audio.")
+                video_transcript = ""
+            except sr.RequestError as e:
+                logging.error(f"Could not request results from Speech Recognition service; {e}")
+                video_transcript = ""
+    except Exception as e:
+        logging.error(f"Error during audio transcription: {e}")
+        messagebox.showerror("Error", "Failed to transcribe audio from the video.")
+        video_transcript = ""
+    finally:
+        if os.path.exists("temp_audio.wav"):
+            os.remove("temp_audio.wav")
+
+    if video_transcript:
+        # Sentiment Analysis on transcript
+        update_progress("Performing sentiment analysis...", 30)
+        logging.info("Performing sentiment analysis on transcript.")
+        try:
+            sia = SentimentIntensityAnalyzer()
+            sentiment = sia.polarity_scores(video_transcript)
+            sentiment_analysis = f"Sentiment Analysis:\nPositive: {sentiment['pos']}\nNeutral: {sentiment['neu']}\nNegative: {sentiment['neg']}\nCompound: {sentiment['compound']}\n"
+        except Exception as e:
+            logging.error(f"Error during sentiment analysis: {e}")
+            sentiment_analysis = "Sentiment Analysis: Unable to perform analysis due to an error."
+
+        # Emotion Detection using transformers
+        update_progress("Performing emotion detection...", 40)
+        logging.info("Performing emotion detection on transcript.")
+        try:
+            emotions = emotion_classifier(video_transcript)
+            emotion_analysis = "Emotion Analysis:\n"
+            for emotion in emotions[0]:
+                emotion_analysis += f"{emotion['label']}: {emotion['score']:.2f}\n"
+        except Exception as e:
+            logging.error(f"Error during emotion detection: {e}")
+            emotion_analysis = "Emotion Analysis: Unable to perform analysis due to an error."
+    else:
+        sentiment_analysis = "Sentiment Analysis: Unable to perform analysis due to lack of transcript."
+        emotion_analysis = "Emotion Analysis: Unable to perform analysis due to lack of transcript."
+
+    # Analyze video frames for actions and emotions
+    update_progress("Analyzing video frames...", 50)
+    logging.info("Analyzing video frames for actions and emotions.")
+    try:
+        cap = cv2.VideoCapture(video_path)
+        frame_count = 0
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        duration = total_frames / fps if fps else 0
+        progress_increment = 30 / total_frames if total_frames > 0 else 0
+
+        # Placeholder action detection model
+        action_model = None  # Replace with actual model if available
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            frame_count += 1
+            timestamp = frame_count / fps if fps else 0
+            if frame_count % 30 == 0:  # Analyze every 30th frame to reduce processing
+                action = detect_actions(frame, action_model)
+                if action:
+                    video_actions.append((timestamp, action))
+                    # Check for legal violations based on detected actions
+                    violation = check_for_violations(action, timestamp)
+                    if violation:
+                        detected_violations.append(violation)
+            # Update progress bar
+            progress = 50 + int((frame_count / total_frames) * 30) if total_frames > 0 else 80
+            update_progress(f"Analyzing video frames... ({frame_count}/{total_frames})", progress)
+        cap.release()
+        if video_actions:
+            actions_list = [action for _, action in video_actions]
+            action_analysis = f"Detected Actions: {', '.join(set(actions_list))}"
+        else:
+            action_analysis = "No significant actions detected."
+        logging.info("Video analysis completed.")
+    except Exception as e:
+        logging.exception(f"Error during video frame analysis: {e}")
+        action_analysis = "Action Analysis: Unable to perform analysis due to an error."
+
+# Placeholder function for action detection
+def detect_actions(frame, model):
+    # Implement action detection logic here
+    # For demonstration, we'll simulate detecting an action at random
+    # In a real implementation, you would use an action recognition model
+    try:
+        # Simulated actions
+        actions = ["Use of Force", "Weapon Drawn", "Aggressive Gesture", "Calm Interaction"]
+        detected_action = np.random.choice(actions, p=[0.1, 0.1, 0.1, 0.7])
+        if detected_action != "Calm Interaction":
+            return detected_action
+        else:
+            return None
+    except Exception as e:
+        logging.error(f"Error during action detection: {e}")
+        return None
+
+# Function to check for legal violations based on detected actions
+def check_for_violations(action, timestamp):
+    # Implement logic to map actions to potential legal violations
+    # For demonstration, we'll simulate a violation detection
+    try:
+        violation_text = f"At {timestamp:.2f} seconds, potential violation detected: {action}"
+        # In a real implementation, analyze the action with legal texts
+        return violation_text
+    except Exception as e:
+        logging.error(f"Error during violation checking: {e}")
+        return None
+
+# Function to analyze legal violations based on transcript and actions
+def analyze_legal_violations():
+    global analysis_results
+    update_progress("Analyzing legal violations...", 80)
+    logging.info("Analyzing legal violations.")
+
+    if not video_transcript:
+        analysis_results = "No transcript available to analyze."
+        return
+
+    try:
+        # Use transformer model for legal analysis
+        inputs = legal_tokenizer(video_transcript, legal_texts, return_tensors='pt', truncation=True, max_length=512)
+        outputs = legal_model(**inputs)
+        logits = outputs.logits
+        predictions = logits.argmax(dim=-1)
+
+        # Interpret predictions
+        if predictions.item() == 1:
+            analysis_results = "Potential legal violations detected based on transformer analysis."
+        else:
+            analysis_results = "No legal violations detected based on transformer analysis."
+
+        logging.info("Legal analysis completed.")
+
+        # Append sentiment, emotion, and action analysis
+        analysis_results += "\n\n" + sentiment_analysis + "\n" + emotion_analysis + "\n" + action_analysis
+
+        # Append detected violations with timestamps
+        if detected_violations:
+            violations_text = "\n\nDetected Violations:\n" + "\n".join(detected_violations)
+            analysis_results += violations_text
+        else:
+            analysis_results += "\n\nNo specific violations detected based on actions."
+
+    except Exception as e:
+        logging.error(f"Error during legal analysis: {e}")
+        analysis_results = "Legal Analysis: Unable to perform analysis due to an error."
+
+# Function to answer user questions based on analysis
+def answer_question(question):
+    global question_answer
+    logging.info("Answering user question.")
+    try:
+        # Combine analysis results and legal texts for context
+        context = analysis_results + "\n" + legal_texts
+        # Use a QA model (e.g., distilbert-base-cased-distilled-squad)
+        qa_model = pipeline('question-answering', model='distilbert-base-cased-distilled-squad', tokenizer='distilbert-base-cased-distilled-squad')
+        result = qa_model(question=question, context=context)
+        question_answer = result['answer']
+        logging.info("Question answered.")
+    except Exception as e:
+        logging.error(f"Error during question answering: {e}")
+        question_answer = "Unable to provide an answer due to an error."
+
+# Function to update progress bar and status
+def update_progress(message, value):
+    progress_label.config(text=message)
+    progress_bar['value'] = value
+    root.update_idletasks()
+    # time.sleep(0.1)  # Reduced sleep time for smoother progress updates
+
+# Function to speak out the results
+def speak_results():
+    global analysis_results
+    logging.info("Speaking out the results.")
+    try:
+        engine.say(analysis_results)
+        engine.runAndWait()
+    except Exception as e:
+        logging.error(f"Error during text-to-speech: {e}")
+        messagebox.showerror("Error", "Unable to perform text-to-speech.")
+
+# GUI Functions
+def start_analysis_thread():
+    threading.Thread(target=start_analysis).start()
+
+def start_analysis():
+    video_path = video_path_var.get()
+    if not video_path:
+        messagebox.showerror("Error", "Please select a video file.")
+        return
+    disable_buttons()
+    progress_window.deiconify()
+    update_progress("Loading legal texts...", 0)
+    get_legal_texts()
+    analyze_video(video_path)
+    analyze_legal_violations()
+    update_progress("Analysis complete.", 100)
+    progress_window.withdraw()
+    enable_buttons()
+    show_results()  # Directly show results without asking for additional details
+
+def browse_video():
+    filename = filedialog.askopenfilename(title="Select Video File", filetypes=[("Video Files", "*.mp4;*.avi;*.mov")])
+    if filename and filename.lower().endswith(('.mp4', '.avi', '.mov')):
+        video_path_var.set(filename)
+    else:
+        messagebox.showerror("Invalid File", "Please select a valid video file.")
+
+def show_results():
+    global analysis_results
+    results_window = tk.Toplevel(root)
+    results_window.title("Analysis Results")
+    results_window.geometry("800x600")
+    results_window.configure(bg="#121212")
+    results_text = tk.Text(results_window, wrap=tk.WORD, bg="#1e1e1e", fg="#ffffff", insertbackground="#ffffff")
+    results_text.insert(tk.END, analysis_results)
+    results_text.pack(expand=True, fill=tk.BOTH)
+    speak_results_button = ttk.Button(results_window, text="Speak Results", command=speak_results)
+    speak_results_button.pack(pady=10)
+
+    # Additional Buttons
+    button_frame = ttk.Frame(results_window)
+    button_frame.pack(pady=10)
+
+    save_report_button = ttk.Button(button_frame, text="Save Report", command=save_report)
+    save_report_button.grid(row=0, column=0, padx=5)
+
+    view_transcript_button = ttk.Button(button_frame, text="View Transcript", command=view_transcript)
+    view_transcript_button.grid(row=0, column=1, padx=5)
+
+    play_video_button = ttk.Button(button_frame, text="Play Video", command=play_video)
+    play_video_button.grid(row=0, column=2, padx=5)
+
+    # Question and Answer Section
+    qa_label = ttk.Label(results_window, text="Ask a question about the analysis:", font=default_font, foreground="#ffffff", background="#121212")
+    qa_label.pack(pady=5)
+    question_entry = ttk.Entry(results_window, width=80)
+    question_entry.pack(pady=5)
+    def submit_question():
+        question = question_entry.get()
+        if question:
+            answer_question(question)
+            answer_label.config(text=f"Answer: {question_answer}")
+        else:
+            messagebox.showerror("Input Error", "Please enter a question.")
+    submit_button = ttk.Button(results_window, text="Submit Question", command=submit_question)
+    submit_button.pack(pady=5)
+    answer_label = ttk.Label(results_window, text="", font=default_font, foreground="#ffffff", background="#121212", wraplength=700)
+    answer_label.pack(pady=10)
+
+def save_report():
+    global analysis_results
+    file_path = filedialog.asksaveasfilename(defaultextension=".txt", title="Save Report")
+    if file_path:
+        try:
+            with open(file_path, 'w', encoding='utf-8') as file:
+                file.write(analysis_results)
+            messagebox.showinfo("Success", "Report saved successfully.")
+        except Exception as e:
+            logging.error(f"Error saving report: {e}")
+            messagebox.showerror("Error", "Failed to save report.")
+
+def view_transcript():
+    global video_transcript
+    if not video_transcript:
+        messagebox.showinfo("Transcript", "No transcript available.")
+        return
+    transcript_window = tk.Toplevel(root)
+    transcript_window.title("Video Transcript")
+    transcript_window.geometry("800x600")
+    transcript_window.configure(bg="#121212")
+    transcript_text = tk.Text(transcript_window, wrap=tk.WORD, bg="#1e1e1e", fg="#ffffff", insertbackground="#ffffff")
+    transcript_text.insert(tk.END, video_transcript)
+    transcript_text.pack(expand=True, fill=tk.BOTH)
+
+def play_video():
+    video_path = video_path_var.get()
+    if not video_path:
+        messagebox.showerror("Error", "Video file not found.")
+        return
+    try:
+        # Play the video using default video player
+        os.startfile(video_path)
+    except Exception as e:
+        logging.error(f"Error playing video: {e}")
+        messagebox.showerror("Error", "Unable to play video.")
+
+def disable_buttons():
+    start_button.config(state='disabled')
+    browse_button.config(state='disabled')
+
+def enable_buttons():
+    start_button.config(state='normal')
+    browse_button.config(state='normal')
+
+# Main application
+root = tk.Tk()
+root.title("Legal Video Analyzer")
+root.geometry("800x600")
+
+# Import the ttk theme
+style = ttk.Style(root)
+style.theme_use('clam')  # You can change this to 'default', 'alt', 'classic', or any available theme
+
+# Custom fonts
+default_font = ('Helvetica', 12)
+
+# Set background color of the window (dark theme)
+root.configure(bg="#121212")
+
+# Header label
+header_label = ttk.Label(root, text="Legal Video Analyzer", font=('Helvetica', 20, 'bold'), foreground="#ffffff", background="#121212")
+header_label.pack(pady=20)
+
+# Instruction label
+instruction_label = ttk.Label(root, text="Analyze videos for potential legal violations using advanced AI models.",
+                              font=default_font, foreground="#999999", background="#121212")
+instruction_label.pack(pady=10)
+
+# Video selection frame
+video_frame = ttk.Frame(root)
+video_frame.pack(pady=10)
+
+video_path_var = tk.StringVar()
+
+video_label = ttk.Label(video_frame, text="Select Video File:", background="#121212", foreground="#ffffff", font=default_font)
+video_label.grid(row=0, column=0, padx=5, pady=5, sticky='e')
+
+video_entry = ttk.Entry(video_frame, textvariable=video_path_var, width=50)
+video_entry.grid(row=0, column=1, padx=5, pady=5)
+
+browse_button = ttk.Button(video_frame, text="Browse", command=browse_video)
+browse_button.grid(row=0, column=2, padx=5, pady=5)
+
+# Start Analysis Button
+start_button = ttk.Button(root, text="Start Analysis", command=start_analysis_thread)
+start_button.pack(pady=20)
+
+# Progress Window (Initially Hidden)
+progress_window = tk.Toplevel(root)
+progress_window.title("Processing...")
+progress_window.geometry("400x100")
+progress_window.configure(bg="#121212")
+progress_window.withdraw()
+
+progress_label = ttk.Label(progress_window, text="Processing...", font=default_font, foreground="#ffffff", background="#121212")
+progress_label.pack(pady=10)
+
+progress_bar = ttk.Progressbar(progress_window, mode='determinate', length=300)
+progress_bar.pack(pady=10)
+
+# Run the main loop
+root.mainloop()
