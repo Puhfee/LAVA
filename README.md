@@ -1,5 +1,3 @@
-Here's an updated version of your `README.md` that includes all the necessary details for your project, including your environment setup and package requirements:
-
 ### README.md
 
 ```markdown
@@ -92,9 +90,3 @@ We welcome contributions to improve the project. Please follow these steps:
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-```
-
----
-
-This README provides a clear overview of the project, including system requirements, setup instructions, dependencies, usage, and contribution guidelines. Let me know if you need further refinements or additions!
