@@ -1,9 +1,13 @@
 ### README.md
 
-```markdown
+
 # LAVA - Legal Analysis Video Assistant
 
-LAVA (Legal Analysis Video Assistant) is an advanced AI-powered tool designed to analyze video and audio content for legal purposes. It transcribes audio, processes video frames, and evaluates them against legal standards (e.g., U.S. federal laws, California state laws) to provide insights for both prosecution and defense. The tool leverages NLP, sentiment analysis, and AI models to simulate human-like legal reasoning.
+LAVA (Legal Analysis Video Assistant) is an advanced AI-powered tool designed to analyze video and
+audio content for legal purposes. It transcribes audio, processes video frames, and evaluates them
+against legal standards (e.g., U.S. federal laws, California state laws) to provide insights for
+both prosecution and defense. The tool leverages NLP, sentiment analysis, and AI models to simulate
+human-like legal reasoning.
 
 ## Features
 - **Transcription**: Converts speech to text using `SpeechRecognition`.
